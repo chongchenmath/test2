@@ -16,7 +16,7 @@
 # along with ODL.  If not, see <http://www.gnu.org/licenses/>.
 
 """
-Example of shape-based image reconstruction using linearized deformations.
+Implementing shape-based image reconstruction using linearized deformations.
 """
 
 # Imports for common Python 2/3 codebase
@@ -694,6 +694,10 @@ def _donut_2d_nonsmooth(discr):
 
 if __name__ == '__main__':
     
+    """
+    Example of shape-based image reconstruction using linearized deformations.
+    """
+    
     import odl
     
     
@@ -765,7 +769,8 @@ if __name__ == '__main__':
     geometry = odl.tomo.Parallel2dGeometry(angle_partition, detector_partition)
     
     # Create forward projection operator by X-ray transform
-    xray_trafo_op = odl.tomo.RayTransform(discr_space, geometry, impl='astra_cuda')
+    xray_trafo_op = odl.tomo.RayTransform(discr_space, geometry,
+                                          impl='astra_cuda')
     
     # Create projection data by given setting
     proj_data = xray_trafo_op(ground_truth)
