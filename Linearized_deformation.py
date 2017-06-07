@@ -25,164 +25,12 @@ from future import standard_library
 from builtins import super
 from odl.operator.operator import Operator
 from odl.deform import LinDeformFixedTempl
-from odl.phantom import shepp_logan, disc_phantom
+from odl.phantom import disc_phantom
 from odl.solvers import CallbackShow, CallbackPrintIteration
 import numpy as np
 import time
 import matplotlib.pyplot as plt
 standard_library.install_aliases()
-
-
-def K(x, y, sigma):
-    # Define the K matrix as symmetric gaussian
-    return np.exp(-((x[0] - y[0])**2 + (x[1] - y[1])**2) / sigma**2) * np.eye(2)
-
-
-def v(x, grid, alphas, sigma):
-    """ Calculate the translation at point x """
-    alpha1, alpha2 = alphas  # unpack translations per direction
-    result = np.zeros_like(x)
-    for i, (point, a1, a2) in enumerate(zip(grid.points(), alpha1, alpha2)):
-        result += K(x, point, sigma).dot([a1, a2]).squeeze()
-    return result
-
-
-class LinearDeformation(Operator):
-    """ A linear deformation given by:
-        ``g(x) = f(x + v(x))``
-    Where ``f(x)`` is the input template and ``v(x)`` is the translation at
-    point ``x``. ``v(x)`` is computed using gaussian kernels with midpoints at
-    ``grid``.
-    """
-    def __init__(self, fspace, vspace, grid, sigma):
-        self.grid = grid
-        self.sigma = sigma
-        super().__init__(odl.ProductSpace(fspace, vspace), fspace, False)
-
-    def _call(self, x):
-        # Unpack input
-        f, alphas = x
-#        extension = f.space.extension(f.ntuple)  # this syntax is improved in pull #276
-
-        # Array of output values
-        out_values = np.zeros(f.size)
-
-        for i, point in enumerate(self.range.points()):
-            # Calculate deformation in each point
-            point += v(point, self.grid, alphas, self.sigma)
-
-            if point in f.space.domain:
-                # Use extension operator of f
-                out_values[i] = f.interpolation(point)
-            else:
-                # Zero boundary condition
-                out_values[i] = 0
-
-        return out_values
-
-
-class Functional(Operator):
-
-    """Quick hack for a functional class."""
-
-    def __init__(self, domain, linear=False):
-        """Initialize a new instance.
-
-        Parameters
-        ----------
-        domain : `LinearSpace`
-            Set of elements on which the functional can be evaluated
-        linear : `bool`, optional
-            If `True`, assume that the functional is linear
-        """
-        super().__init__(domain=domain, range=domain.field, linear=linear)
-
-    def gradient(self, x, out=None):
-        """Evaluate the gradient of the functional.
-
-        Parameters
-        ----------
-        x : domain element-like
-            Point in which to evaluate the gradient
-        out : domain element, optional
-            Element into which the result is written
-
-        Returns
-        -------
-        out : domain element
-            Result of the gradient calcuation. If ``out`` was given,
-            the returned object is a reference to it.
-        """
-        raise NotImplementedError
-
-    def __mul__(self, other):
-        """Return ``self * other``.
-
-        If ``other`` is an operator, this corresponds to
-        operator composition:
-
-            ``op1 * op2 <==> (x --> op1(op2(x))``
-
-        If ``other`` is a scalar, this corresponds to right
-        multiplication of scalars with operators:
-
-            ``op * scalar <==> (x --> op(scalar * x))``
-
-        If ``other`` is a vector, this corresponds to right
-        multiplication of vectors with operators:
-
-            ``op * vector <==> (x --> op(vector * x))``
-
-        Note that left and right multiplications are generally
-        different.
-
-        Parameters
-        ----------
-        other : {`Operator`, `LinearSpaceVector`, scalar}
-            `Operator`:
-                The `Operator.domain` of ``other`` must match this
-                operator's `Operator.range`.
-
-            `LinearSpaceVector`:
-                ``other`` must be an element of this operator's
-                `Operator.domain`.
-
-            scalar:
-                The `Operator.domain` of this operator must be a
-                `LinearSpace` and ``other`` must be an
-                element of the ``field`` of this operator's
-                `Operator.domain`.
-
-        Returns
-        -------
-        mul : `Functional`
-            Multiplication result
-
-            If ``other`` is an `Operator`, ``mul`` is a
-            `FunctionalComp`.
-
-            If ``other`` is a scalar, ``mul`` is a
-            `FunctionalRightScalarMult`.
-
-            If ``other`` is a vector, ``mul`` is a
-            `FunctionalRightVectorMult`.
-
-        """
-        if isinstance(other, Operator):
-            return FunctionalComp(self, other)
-        elif isinstance(other, Number):
-            # Left multiplication is more efficient, so we can use this in the
-            # case of linear operator.
-            raise NotImplementedError
-            if self.is_linear:
-                return OperatorLeftScalarMult(self, other)
-            else:
-                return OperatorRightScalarMult(self, other)
-        elif isinstance(other, LinearSpaceVector) and other in self.domain:
-            raise NotImplementedError
-            return OperatorRightVectorMult(self, other.copy())
-        else:
-            return NotImplemented
 
 
 class DisplacementOperator(Operator):
@@ -229,23 +77,11 @@ class DisplacementOperator(Operator):
             Function to determine the kernel at the control points ``K(y_j)``
             The function must accept a real variable and return a real number.
         """
-        # TODO: use kernel operator instead of function & matrix
-#        if isinstance(par_space, odl.Fn):
-#            # Make a product space with one component
-#            par_space = odl.ProductSpace(par_space, 1)
-#        elif isinstance(par_space, odl.ProductSpace):
-#            pass
-#        else:
-#            raise TypeError('expected Rn or ProductSpace as par_space, got '
-#                            '{!r}.'.format(par_space))
 
         if par_space.size != discr_space.ndim:
             raise ValueError('dimensions of product space and image grid space'
                              ' do not match ({} != {})'
                              ''.format(par_space.size, discr_space.ndim))
-
-        # The operator maps from the parameter space to an inverse
-        # displacement for the domain of the target.
 
         self.discr_space = discr_space
         self.range_space = odl.ProductSpace(self.discr_space,
@@ -265,8 +101,6 @@ class DisplacementOperator(Operator):
         else:
             self._control_pts = control_points
 
-        # TODO: check that number of control points is the same as alphas
-
     @property
     def ndim(self):
         """Number of dimensions of the deformation."""
@@ -275,7 +109,7 @@ class DisplacementOperator(Operator):
     @property
     def contr_pts_is_grid(self):
         """`True` if the control points are given as a grid."""
-        return isinstance(self.control_points, odl.TensorGrid)
+        return isinstance(self.control_points, odl.RectGrid)
 
     @property
     def control_points(self):
@@ -469,7 +303,6 @@ class ShapeRegularizationFunctional(Operator):
     where ``||.||`` is the norm in a reproducing kernel Hilbert space
     given by parameters ``alpha``. ``K`` is the kernel matrix.
     """
-    # TODO: let user specify K
 
     def __init__(self, par_space, ft_kernel):
         """Initialize a new instance.
@@ -494,7 +327,6 @@ class ShapeRegularizationFunctional(Operator):
 
     def _call(self, alphas):
         """Return ``self(alphas)``."""
-        # TODO: how to improve
 
         # Compute the shape energy by fft
         ft_momenta = vectorial_ft_shape_op(alphas)
@@ -502,14 +334,6 @@ class ShapeRegularizationFunctional(Operator):
         return sum(s.inner(s.space.element(
                        np.asarray(a).reshape(-1, order=self.domain[0].order)))
                    for s, a in zip(stack, alphas)) / 2
-
-#        # Compute the shape energy by matrix times vector
-#        stack = [self._kernel_op(
-#                     np.asarray(a).reshape(-1, order=self.domain[0].order))
-#                 for a in alphas]
-#        return sum(s.inner(s.space.element(
-#                       np.asarray(a).reshape(-1, order=self.domain[0].order)))
-#                   for s, a in zip(stack, alphas)) / 2
 
     def _gradient(self, alphas):
         """Return the gradient at ``alphas``.
@@ -537,7 +361,7 @@ class ShapeRegularizationFunctional(Operator):
 #                self.par_space[0].cell_volume * 2.0 * np.pi)
 
 
-class L2DataMatchingFunctional(Functional):
+class L2DataMatchingFunctional(Operator):
 
     """Basic data matching functional using the L2 norm.
 
@@ -560,7 +384,7 @@ class L2DataMatchingFunctional(Functional):
         """
         if not (isinstance(space, odl.DiscreteLp) and space.exponent == 2.0):
             raise ValueError('not an L2 space.')
-        super().__init__(space, linear=False)
+        super().__init__(domain=space, range=space.field, linear=False)
         self.data = self.domain.element(data)
 
     def _call(self, x):
@@ -574,11 +398,6 @@ class L2DataMatchingFunctional(Functional):
     def derivative(self, x):
         """Return the derivative in ``x``."""
         return self.gradient(x).T
-
-
-# Kernel function for any dimensional
-def gauss_kernel(x, sigma):
-    return np.exp(-x ** 2 / (2 * sigma ** 2))
 
 
 # Kernel function
@@ -614,7 +433,7 @@ def gaussian_kernel_matrix(grid, sigma):
     return kernel_matrix
 
 
-def SNR(signal, noise, impl='general'):
+def snr(signal, noise, impl='general'):
     """Compute the signal-to-noise ratio.
     This compute::
         impl='general'
@@ -659,34 +478,6 @@ def padded_ft_op(space, padded_size):
         padding_op.range, halfcomplex=False, shift=shifts)
 
     return ft_op * padding_op
-
-
-def shape_kernel_ft(kernel):
-    """Compute the n-D Fourier transform of the discrete kernel ``K``.
-
-    Calculate the n-D Fourier transform of the discrete kernel ``K`` on the
-    control grid points {y_i} to its reciprocal points {xi_i}.
-    """
-
-    # Create the array of kernel values on the grid points
-    discretized_kernel = vspace.element(
-        [cptsspace.element(kernel) for _ in range(cptsspace.ndim)])
-    return vectorial_ft_shape_op(discretized_kernel)
-
-
-def fitting_kernel_ft(kernel):
-    """Compute the n-D Fourier transform of the discrete kernel ``K``.
-
-    Calculate the n-D Fourier transform of the discrete kernel ``K`` on the
-    image grid points {y_i} to its reciprocal points {xi_i}.
-
-    """
-    kspace = odl.ProductSpace(discr_space, discr_space.ndim)
-
-    # Create the array of kernel values on the grid points
-    discretized_kernel = kspace.element(
-        [discr_space.element(kernel) for _ in range(discr_space.ndim)])
-    return vectorial_ft_fit_op(discretized_kernel)
 
 
 def shepp_logan_ellipse_2d_template():
@@ -782,8 +573,6 @@ def shepp_logan_2d(space, modified=False):
 def donut(discr, smooth=True, taper=20.0):
     """Return a 'donut' phantom.
 
-    This phantom is used in [Okt2015]_ for shape-based reconstruction.
-
     Parameters
     ----------
     discr : `DiscreteLp`
@@ -818,9 +607,10 @@ def _donut_2d_smooth(discr, taper):
 
     def blurred_circle_1(x):
         """Blurred characteristic function of an circle.
+
         If ``discr.domain`` is a rectangle ``[-1, 1] x [-1, 1]``,
         the circle is centered at ``(0.0, 0.0)`` and has half-axes
-        ``(0.25, 0.25)``. For other domains, the values are scaled
+        ``(0.26, 0.26)``. For other domains, the values are scaled
         accordingly.
         """
         halfaxes = np.array([0.26, 0.26]) * discr.domain.extent() / 2
@@ -838,9 +628,10 @@ def _donut_2d_smooth(discr, taper):
 
     def blurred_circle_2(x):
         """Blurred characteristic function of an circle.
+
         If ``discr.domain`` is a rectangle ``[-1, 1] x [-1, 1]``,
         the circle is centered at ``(0.0, 0.0)`` and has half-axes
-        ``(0.25, 0.25)``. For other domains, the values are scaled
+        ``(0.115, 0.115)``. For other domains, the values are scaled
         accordingly.
         """
         halfaxes = np.array([0.115, 0.115]) * discr.domain.extent() / 2
@@ -865,9 +656,10 @@ def _donut_2d_nonsmooth(discr):
 
     def circle_1(x):
         """Characteristic function of an ellipse.
+
         If ``discr.domain`` is a rectangle ``[-1, 1] x [-1, 1]``,
         the circle is centered at ``(0.0, 0.0)`` and has half-axes
-        ``(0.25, 0.25)``. For other domains, the values are scaled
+        ``(0.2, 0.2)``. For other domains, the values are scaled
         accordingly.
         """
         halfaxes = np.array([0.2, 0.2]) * discr.domain.extent() / 2
@@ -881,9 +673,10 @@ def _donut_2d_nonsmooth(discr):
 
     def circle_2(x):
         """Characteristic function of an circle.
+
         If ``discr.domain`` is a rectangle ``[-1, 1] x [-1, 1]``,
         the circle is centered at ``(0.0, 0.0)`` and has half-axes
-        ``(0.25, 0.25)``. For other domains, the values are scaled
+        ``(0.1, 0.1)``. For other domains, the values are scaled
         accordingly.
         """
         halfaxes = np.array([0.1, 0.1]) * discr.domain.extent() / 2
@@ -902,6 +695,37 @@ def _donut_2d_nonsmooth(discr):
 if __name__ == '__main__':
     
     import odl
+    
+    
+    def shape_kernel_ft(kernel):
+        """Compute the n-D Fourier transform of the discrete kernel ``K``.
+    
+        Calculate the n-D Fourier transform of the discrete kernel ``K`` on the
+        control grid points {y_i} to its reciprocal points {xi_i}.
+        """
+        # Create the array of kernel values on the control grid points
+        discretized_kernel = vspace.element(
+            [cptsspace.element(kernel) for _ in range(cptsspace.ndim)])
+
+        return vectorial_ft_shape_op(discretized_kernel)
+
+
+    def fitting_kernel_ft(kernel):
+        """Compute the n-D Fourier transform of the discrete kernel ``K``.
+    
+        Calculate the n-D Fourier transform of the discrete kernel ``K`` on the
+        image grid points {y_i} to its reciprocal points {xi_i}.
+    
+        """
+        kspace = discr_space.tangent_bundle
+    
+        # Create the array of kernel values on the grid points
+        discretized_kernel = kspace.element(
+            [discr_space.element(kernel) for _ in range(discr_space.ndim)])
+
+        return vectorial_ft_fit_op(discretized_kernel)
+
+
     # Create 2-D discretization reconstruction space
     # The size of the domain should be proportional to the given images
     # 128 for shepp-logan
@@ -913,14 +737,9 @@ if __name__ == '__main__':
                                   dtype='float32', interp='linear')
     
     # Create discretization space for vector field
-    vspace = odl.ProductSpace(cptsspace, cptsspace.ndim)
-    
-    
-    ## Create the ground truth as the given image
-    #ground_truth = discr_space.element(I0)
+    vspace = cptsspace.tangent_bundle
     
     # Create the ground truth as the Shepp-Logan phantom
-    #ground_truth = shepp_logan(discr_space, modified=True)
     ground_truth = donut(discr_space, smooth=True, taper=50)
     
     #template = shepp_logan_2d(discr_space, modified=True)
@@ -958,7 +777,7 @@ if __name__ == '__main__':
     noise_proj_data = proj_data + noise
     
     # Compute the signal-to-noise ratio
-    snr = SNR(proj_data, noise, impl='dB')
+    snr = snr(proj_data, noise, impl='dB')
     
     # Output the signal-to-noise ratio
     print('snr = {!r}'.format(snr))
@@ -967,14 +786,14 @@ if __name__ == '__main__':
     backproj = xray_trafo_op.adjoint(noise_proj_data)
     
     # FFT setting for regularization shape term, 1 means 100% padding
-    # FFT setting for data matching term, 1 means 100% padding
     padded_size = 2 * cptsspace.shape[0]
     padded_ft_shape_op = padded_ft_op(cptsspace, padded_size)
     vectorial_ft_shape_op = odl.DiagonalOperator(
         *([padded_ft_shape_op] * cptsspace.ndim))
     
     # FFT setting for data matching term, 1 means 100% padding
-    padded_ft_fit_op = padded_ft_op(discr_space, padded_size)
+    fit_padded_size = 2 * discr_space.shape[0]
+    padded_ft_fit_op = padded_ft_op(discr_space, fit_padded_size)
     vectorial_ft_fit_op = odl.DiagonalOperator(
         *([padded_ft_fit_op] * discr_space.ndim))
     
@@ -1010,9 +829,6 @@ if __name__ == '__main__':
     l2_data_fit_func = L2DataMatchingFunctional(xray_trafo_op.range,
                                                 noise_proj_data)
     
-    # Composition of the L2 fitting term with three operators
-    # data_fitting_term = l2_data_fit_func * xray_trafo_op * linear_deform_op * displacement_op
-    
     # Compute the kernel matrix for the method without Fourier transform
     # If the dimension is too large, it could cause MemoryError
     # kernelmatrix = gaussian_kernel_matrix(cptsspace.grid, sigma)
@@ -1027,7 +843,7 @@ if __name__ == '__main__':
     eta = 0.002
     
     # Maximum iteration number
-    niter = 1000
+    niter = 100
     
     callback = CallbackShow('iterates', display_step=5) & CallbackPrintIteration()
     
@@ -1054,10 +870,6 @@ if __name__ == '__main__':
         # Show the middle reconstrcted results
         if (i+1) % 100 == 0:
             print(i+1)
-    #        displ = displacement_op(momenta)
-    #        deformed_template = linear_deform_op(displ)
-    #        deformed_template.show(
-    #            title='Reconstruction Image, iters = {!r}, eta 200'.format(i+1))
     
         if callback is not None:
             displ = displacement_op(momenta)
@@ -1081,15 +893,15 @@ if __name__ == '__main__':
     
     plt.subplot(2, 3, 1)
     plt.imshow(np.rot90(template), cmap='bone',
-               vmin=np.asarray(ground_truth).min(),
-               vmax=np.asarray(ground_truth).max()), plt.axis('off')
+               vmin=np.asarray(template).min(),
+               vmax=np.asarray(template).max()), plt.axis('off')
     plt.colorbar()
     plt.title('Template')
     
     plt.subplot(2, 3, 2)
     plt.imshow(np.rot90(deformed_template), cmap='bone',
-               vmin=np.asarray(ground_truth).min(),
-               vmax=np.asarray(ground_truth).max()), plt.axis('off')
+               vmin=np.asarray(deformed_template).min(),
+               vmax=np.asarray(deformed_template).max()), plt.axis('off')
     plt.colorbar()
     plt.title('Reconstructed result')
     
@@ -1101,61 +913,19 @@ if __name__ == '__main__':
     plt.title('Ground truth')
     
     plt.subplot(2, 3, 4)
-    plt.plot(np.asarray(proj_data)[0], 'b', np.asarray(noise_proj_data)[0], 'r')
-    plt.axis([0, 181, -3, 10])
-    plt.grid(True)
+    plt.plot(np.asarray(proj_data)[0], 'b', linewidth=1.0)
+    plt.plot(np.asarray(noise_proj_data)[0], 'r', linewidth=0.5)
+    plt.axis([0, detector_partition.size - 1, -3, 10])
+    plt.grid(True, linestyle='--')
     
     plt.subplot(2, 3, 5)
-    plt.plot(np.asarray(proj_data)[2], 'b', np.asarray(noise_proj_data)[2], 'r')
-    plt.axis([0, 181, -3, 10])
-    plt.grid(True)
+    plt.plot(np.asarray(proj_data)[1], 'b', linewidth=1.0)
+    plt.plot(np.asarray(noise_proj_data)[1], 'r', linewidth=0.5)
+    plt.axis([0, detector_partition.size - 1, -3, 10])
+    plt.grid(True, linestyle='--')
     
     plt.subplot(2, 3, 6)
-    plt.plot(np.asarray(proj_data)[4], 'b', np.asarray(noise_proj_data)[4], 'r')
-    plt.axis([0, 181, -3, 10])
-    plt.grid(True)
-    
-    
-    ## TV reconstruction by Chambolle-Pock algorithm
-    ## Initialize gradient operator
-    #gradient = odl.Gradient(discr_space, method='forward')
-    ## Column vector of two operators
-    #op = odl.BroadcastOperator(xray_trafo_op, gradient)
-    ## Create the proximal operator for unconstrained primal variable
-    #proximal_primal = odl.solvers.proximal_const_func(op.domain)
-    ## Create proximal operators for the dual variable
-    ## l2-data matching
-    #prox_convconj_l2 = odl.solvers.proximal_cconj_l2_squared(xray_trafo_op.range,
-    #                                                         g=noise_proj_data)
-    ## Isotropic TV-regularization i.e. the l1-norm
-    #prox_convconj_l1 = odl.solvers.proximal_cconj_l1(gradient.range, lam=0.6,
-    #                                                 isotropic=True)
-    ## Combine proximal operators, order must correspond to the operator K
-    #proximal_dual = odl.solvers.combine_proximals(prox_convconj_l2,
-    #                                              prox_convconj_l1)
-    ## --- Select solver parameters and solve using Chambolle-Pock --- #
-    ## Estimated operator norm, add 10 percent to ensure ||K||_2^2 * sigma * tau < 1
-    #op_norm = 1.1 * odl.power_method_opnorm(op)
-    #
-    #niter = 1000  # Number of iterations
-    #tau = 1.0 / op_norm  # Step size for the primal variable
-    #sigma = 1.0 / op_norm  # Step size for the dual variable
-    #gamma = 0.2
-    #
-    ## Optionally pass callback to the solver to display intermediate results
-    #callback = (odl.solvers.CallbackPrintIteration() &
-    #            odl.solvers.CallbackShow())
-    #
-    ## Choose a starting point
-    #x = op.domain.zero()
-    #
-    ## Run the algorithm
-    #odl.solvers.chambolle_pock_solver(
-    #    op, x, tau=tau, sigma=sigma, proximal_primal=proximal_primal,
-    #    proximal_dual=proximal_dual, niter=niter, callback=callback,
-    #    gamma=gamma)
-    #
-    #plt.imshow(np.rot90(x), cmap='bone',
-    #           vmin=0., vmax=1.), plt.axis('off')
-    ##plt.colorbar()
-    #plt.title('Reconstructed result')
+    plt.plot(np.asarray(proj_data)[2], 'b', linewidth=1.0)
+    plt.plot(np.asarray(noise_proj_data)[2], 'r', linewidth=0.5)
+    plt.axis([0, detector_partition.size - 1, -3, 10])
+    plt.grid(True, linestyle='--')
