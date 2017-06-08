@@ -6,3 +6,7 @@ This repository contains the code for the paper "Shape Based Image Reconstructio
 Dependencies
 ------------
 The code is currently based on [ODL](https://github.com/odlgroup/odl).
+
+Acknowledgments
+---------------
+Many thanks to [Jonas Adler](https://github.com/adler-j) and [Holger Kohr](https://github.com/kohr-h) for their kind help on this development. 
