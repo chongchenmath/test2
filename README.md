@@ -1,4 +1,4 @@
-Implementation of shape based image reconstruction using linearized deformations
+Implementation of shape-based image reconstruction using linearized deformations
 ================================================================================
 
 This repository contains the code for the paper "Shape Based Image Reconstruction Using Linearized Deformations, O. Öktem, C. Chen, N. Domanic, P. Ravikumar and C. Bajaj, _Inverse Problems_, 33(3):035004 (33pp), 2017." [Download](http://iopscience.iop.org/article/10.1088/1361-6420/aa55af).
